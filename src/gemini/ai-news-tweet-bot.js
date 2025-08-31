@@ -1,196 +1,213 @@
-// index.js - AI News Twitter Bot
+// AI News Twitter Bot (Randomized Hugging Face models)
+// Fetch AI-focused RSS → Summarize → Validate → Tweet
+// Dry-run logging included
 
-import dotenv from "dotenv";
+import RSSParser from 'rss-parser';
+import { TwitterApi } from 'twitter-api-v2';
+import { HfInference } from '@huggingface/inference';
+import twitterText from 'twitter-text';
+import dotenv from 'dotenv';
+
 dotenv.config();
 
-import { TwitterApi } from "twitter-api-v2";
-import { HfInference } from "@huggingface/inference";
-import NewsAPI from "newsapi";
-import twitter from "twitter-text";
+// -------------------
+// Environment & Config
+// -------------------
+const ENV = {
+  DRY_RUN: process.env.DRY_RUN?.toLowerCase() === 'true',
+  TWITTER_API_KEY: process.env.TWITTER_API_KEY,
+  TWITTER_API_SECRET: process.env.TWITTER_API_SECRET,
+  TWITTER_ACCESS_TOKEN: process.env.TWITTER_ACCESS_TOKEN,
+  TWITTER_ACCESS_SECRET: process.env.TWITTER_ACCESS_SECRET,
+  HUGGING_FACE_API_KEY: process.env.HUGGING_FACE_API_KEY
+};
 
-// --- Config ---
-const twitterClient = new TwitterApi({
-  appKey: process.env.TWITTER_API_KEY,
-  appSecret: process.env.TWITTER_API_SECRET,
-  accessToken: process.env.TWITTER_ACCESS_TOKEN,
-  accessSecret: process.env.TWITTER_ACCESS_SECRET,
-});
-const rwClient = twitterClient.readWrite;
+const CONFIG = {
+  MAX_TWEET_LENGTH: 280,
+  ARTICLES_PER_FEED: 3,
+  HASHTAGS: '#AI #Quantum #Tech',
+  SUMMARIZATION_MODELS: [
+    'facebook/bart-large-cnn',
+    'sshleifer/distilbart-cnn-12-6',
+    'google/pegasus-xsum'
+  ]
+};
 
-// Hugging Face client setup (unused)
-const hf = new HfInference(process.env.HUGGING_FACE_API_KEY);
-const summarizationModel = "facebook/bart-large-cnn";
+// -------------------
+// RSS Feeds (AI-focused)
+// -------------------
+const FEEDS = [
+  { url: 'https://www.sciencedaily.com/rss/computers_math/artificial_intelligence.xml', weight: 2 },
+  { url: 'https://venturebeat.com/category/ai/feed/', weight: 1 }
+];
 
-// News API setup
-const newsApiKey = process.env.NEWS_API_KEY;
-const newsAPIClient = new NewsAPI(newsApiKey);
+// -------------------
+// Instances
+// -------------------
+const rss = new RSSParser();
+const hf = new HfInference(ENV.HUGGING_FACE_API_KEY);
+const { parseTweet } = twitterText;
 
-const MAX_TWEET_LENGTH = 280;
-const HASHTAGS = ["#AI", "#ArtificialIntelligence", "#Tech", "#MachineLearning"];
-const RELEVANT_TERMS = /(AI|artificial intelligence|machine learning|chatbot|generative)/i;
-
-// --- Helpers ---
-async function fetchNews() {
-  // Try multiple search strategies
-  const searchStrategies = [
-    {
-      name: "AI-focused with technology category",
-      params: {
-        q: "AI OR \"artificial intelligence\" OR \"machine learning\" OR chatbot OR generative",
-        language: "en",
-        category: "technology",
-        pageSize: 10,
-      }
-    },
-    {
-      name: "AI-focused without category",
-      params: {
-        q: "AI OR \"artificial intelligence\" OR \"machine learning\"",
-        language: "en",
-        pageSize: 10,
-      }
-    },
-    {
-      name: "Just technology headlines",
-      params: {
-        language: "en",
-        category: "technology",
-        pageSize: 10,
-      }
-    },
-    {
-      name: "General headlines",
-      params: {
-        language: "en",
-        pageSize: 10,
-      }
-    }
-  ];
-
-  for (const strategy of searchStrategies) {
-    try {
-      console.log(`\nTrying strategy: ${strategy.name}...`);
-      const response = await newsAPIClient.v2.topHeadlines(strategy.params);
-
-      console.log("News API Response Status:", response.status);
-      console.log("Total Results:", response.totalResults);
-      console.log("Number of articles returned:", response.articles?.length || 0);
-
-      if (response.status === "ok" && response.articles && response.articles.length > 0) {
-        console.log(`\n=== ALL ARTICLES FOUND (${strategy.name}) ===`);
-        response.articles.forEach((article, index) => {
-          console.log(`\n--- Article ${index + 1} ---`);
-          console.log("Title:", article.title);
-          console.log("Source:", article.source?.name);
-          console.log("Published:", article.publishedAt);
-          console.log("URL:", article.url);
-          console.log("Description:", article.description?.substring(0, 100) + "...");
-          console.log("Has AI relevance:", RELEVANT_TERMS.test(article.title || ""));
-        });
-        console.log("\n=== END OF ARTICLES ===\n");
-        
-        return response.articles;
-      } else {
-        console.log(`No articles found with strategy: ${strategy.name}`);
-      }
-      
-    } catch (err) {
-      console.error(`Strategy "${strategy.name}" failed:`, err.message);
-      if (err.response) {
-        console.error("API Response Status:", err.response.status);
-        console.error("API Response Data:", err.response.data);
-      }
-    }
-  }
-
-  console.log("All search strategies exhausted, no articles found.");
-  return [];
+// -------------------
+// Utilities
+// -------------------
+function truncateText(text, maxLength) {
+  return text.length > maxLength ? text.slice(0, maxLength) : text;
 }
 
-/**
- * Summarizes a given text using the Hugging Face summarization model.
- * Ensures output is roughly within tweet length limits.
- * @param {string} text
- * @returns {Promise<string>}
- */
-async function summarizeText(text) {
+function cleanSummary(text) {
+  // Remove leading/trailing spaces
+  text = text.trim();
+
+  // Remove spaces before punctuation
+  text = text.replace(/\s+([.,!?;:])/g, '$1');
+
+  // Collapse multiple spaces
+  text = text.replace(/\s{2,}/g, ' ');
+
+  return text;
+}
+
+
+function appendHashtags(text, hashtags) {
+  const spaceLeft = CONFIG.MAX_TWEET_LENGTH - text.length - 1;
+  return spaceLeft >= hashtags.length ? `${text} ${hashtags}` : text;
+}
+
+function validateTweetLength(text) {
+  const parsed = parseTweet(text);
+  return (!parsed.valid || parsed.weightedLength > CONFIG.MAX_TWEET_LENGTH)
+    ? truncateText(text, CONFIG.MAX_TWEET_LENGTH)
+    : text;
+}
+
+function weightedPickFeed(feeds) {
+  const weighted = feeds.flatMap(feed => Array(feed.weight).fill(feed.url));
+  return weighted[Math.floor(Math.random() * weighted.length)];
+}
+
+function randomModel() {
+  const models = CONFIG.SUMMARIZATION_MODELS;
+  return models[Math.floor(Math.random() * models.length)];
+}
+
+// -------------------
+// Feed Handling
+// -------------------
+async function fetchFeed(url, count = CONFIG.ARTICLES_PER_FEED) {
   try {
-    const output = await hf.summarization({
-      model: summarizationModel,
-      inputs: text,
-      parameters: { max_length: 200 }, // let model produce rich but concise text
-    });
-
-    if (Array.isArray(output) && output[0]?.summary_text) {
-      return output[0].summary_text;
+    const feed = await rss.parseURL(url);
+    if (!feed.items?.length) {
+      console.warn(`[WARN] Feed has no items: ${url}`);
+      return [];
     }
-    return output.summary_text || text;
-  } catch (error) {
-    console.error("Error summarizing text:", error);
-    return text; // fallback
-  }
-}
-
-function formatTweet(text) {
-  let finalText = text.trim();
-  const parsed = twitter.parseTweet(finalText);
-  if (parsed.weightedLength > MAX_TWEET_LENGTH) {
-    finalText = finalText.substring(0, MAX_TWEET_LENGTH - 1) + "…";
-  }
-  for (const tag of HASHTAGS) {
-    const test = `${finalText} ${tag}`;
-    if (twitter.parseTweet(test).valid) finalText = test;
-    else break;
-  }
-  return finalText;
-}
-
-// --- Main ---
-async function runBot() {
-  console.log("Starting AI News Bot...");
-  console.log("News API Key present:", !!process.env.NEWS_API_KEY);
-
-  const articles = await fetchNews();
-  if (!articles.length) {
-    console.log("No articles found. This could be due to:");
-    console.log("1. Invalid News API key");
-    console.log("2. API quota exceeded");
-    console.log("3. Network issues");
-    console.log("4. No matching articles for the search terms");
-    return;
-  }
-
-  // Pick first relevant article with both title and URL
-  const article = articles.find(a => 
-    a.title && 
-    a.url && 
-    RELEVANT_TERMS.test(a.title)
-  );
-  
-  if (!article) {
-    console.log("No relevant articles with title and URL found.");
-    console.log("Available articles:");
-    articles.forEach((a, i) => {
-      console.log(`${i + 1}. ${a.title || 'No title'} - Has URL: ${!!a.url} - AI Relevant: ${RELEVANT_TERMS.test(a.title || '')}`);
-    });
-    return;
-  }
-
-  console.log("\n=== SELECTED ARTICLE ===");
-  console.log("Title:", article.title);
-  console.log("URL:", article.url);
-  console.log("========================\n");
-
-  const tweetContent = formatTweet(`${article.title} ${article.url}`);
-  console.log("Tweeting:", tweetContent);
-  console.log("Tweet length:", twitter.parseTweet(tweetContent).weightedLength);
-
-  try {
-    await rwClient.v2.tweet(tweetContent);
-    console.log("Tweet posted successfully!");
+    return feed.items.slice(0, count).map(i => ({
+      title: i.title,
+      description: i.contentSnippet || ''
+    }));
   } catch (err) {
-    console.error("Tweet failed:", err);
+    console.error(`[ERROR] Feed parse failed (${url}): ${err.message}`);
+    return [];
   }
 }
 
-runBot();
+// -------------------
+// Article Processing
+// -------------------
+async function summarizeArticle(article) {
+  const model = randomModel();
+  const inputText = `Summarize this as a concise AI news tweet under 280 characters:\nTitle: ${article.title}\nDescription: ${article.description}`;
+
+  try {
+    const result = await hf.summarization({
+      model,
+      inputs: inputText,
+      parameters: {
+        max_length: 120,
+        min_length: 30,
+        temperature: 0.7,
+        top_p: 0.9
+      }
+    });
+
+    if (ENV.DRY_RUN) console.log(`[DEBUG] HF raw response from ${model}:`, result);
+
+    let summary;
+    if (Array.isArray(result)) {
+      summary = result[0]?.summary_text;
+    } else if (result.summary_text) {
+      summary = result.summary_text;
+    }
+
+    summary = summary || article.title;
+    summary = cleanSummary(summary)
+    summary = appendHashtags(summary, CONFIG.HASHTAGS);
+    summary = validateTweetLength(summary);
+    return summary;
+
+  } catch (err) {
+    console.error(`[ERROR] Summarization failed: ${err.message}`);
+    return appendHashtags(article.title, CONFIG.HASHTAGS);
+  }
+}
+
+// -------------------
+// Twitter Posting
+// -------------------
+async function postTweet(text) {
+  if (ENV.DRY_RUN) {
+    console.log(`[DRY RUN] Tweet ready: ${text}`);
+    return;
+  }
+
+  try {
+    const client = new TwitterApi({
+      appKey: ENV.TWITTER_API_KEY,
+      appSecret: ENV.TWITTER_API_SECRET,
+      accessToken: ENV.TWITTER_ACCESS_TOKEN,
+      accessSecret: ENV.TWITTER_ACCESS_SECRET,
+    });
+    await client.v2.tweet(text);
+    console.log('[INFO] ✅ Tweet posted!');
+  } catch (err) {
+    console.error(`[ERROR] Twitter post failed: ${err.message}`);
+  }
+}
+
+// -------------------
+// Main Orchestration
+// -------------------
+export async function main() {
+  let articles = [];
+
+  const pickFeed = weightedPickFeed(FEEDS);
+  const feedArticles = await fetchFeed(pickFeed);
+  articles = articles.concat(feedArticles);
+
+  if (!articles.length) {
+    console.error('[ERROR] ❌ No valid AI articles found.');
+    return;
+  }
+
+  // Dry-run logging
+  if (ENV.DRY_RUN) {
+    console.log(`[DRY RUN] Fetched ${articles.length} article(s) from: ${pickFeed}`);
+    articles.forEach((a, i) => {
+      console.log(`\n[Article ${i + 1}]`);
+      console.log(`Title      : ${a.title}`);
+      console.log(`Description: ${a.description}`);
+    });
+  }
+
+  // Pick random article
+  const pick = articles[Math.floor(Math.random() * articles.length)];
+  if (ENV.DRY_RUN) console.log(`\n[DRY RUN] Picking article for tweet: ${pick.title}`);
+
+  const tweet = await summarizeArticle(pick);
+  await postTweet(tweet);
+}
+
+// -------------------
+// Run main directly
+// -------------------
+main().catch(err => console.error(`[FATAL] Uncaught error: ${err.message}`));
