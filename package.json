@@ -4,8 +4,10 @@
   "type": "module",
   "main": "src/post.js",
   "scripts": {
-    "generate-tweets-csv": "node src/generate.js",
-    "post": "node src/post.js"
+  "generate-tweets-csv": "node src/generate.js",
+  "post": "node src/post.js",
+  "gemini-news-bot": "node src/gemini/ai-news-tweet-bot.js",
+  "single-post": "node src/post-single.js"
   },
   "dependencies": {
     "csv-parser": "^3.0.0",
@@ -13,8 +15,9 @@
     "dotenv": "^17.2.1",
     "newsapi": "^2.4.1",
     "node-fetch": "^3.3.2",
-    "twitter-api-v2": "^1.15.0",
-    "twitter-text": "^3.1.0"
+    "twitter-api-v2": "^1.18.0",
+    "twitter-text": "^3.1.0",
+    "@huggingface/inference": "^2.5.0"
   },
   "devDependencies": {
     "@types/node-fetch": "^2.6.13"
