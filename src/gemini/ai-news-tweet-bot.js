@@ -1,13 +1,12 @@
 // index.js - The main script for the AI news Twitter bot.
 
 // Load environment variables from .env file
-require('dotenv').config();
-
+require("dotenv").config();
 
 // Import necessary libraries
-const { TwitterApi } = require('twitter-api-v2');
-const { HfInference } = require('@huggingface/inference');
-const NewsAPI = require('newsapi');
+const { TwitterApi } = require("twitter-api-v2");
+const { HfInference } = require("@huggingface/inference");
+const NewsAPI = require("newsapi");
 
 // --- Configuration and Initialization ---
 
@@ -21,10 +20,9 @@ const twitterClient = new TwitterApi({
 
 const rwClient = twitterClient.readWrite;
 
-
 // Hugging Face client setup
 const hf = new HfInference(process.env.HUGGING_FACE_API_KEY);
-const summarizationModel = 'facebook/bart-large-cnn';
+const summarizationModel = "facebook/bart-large-cnn";
 const newsApiKey = process.env.NEWS_API_KEY;
 const newsAPIClient = new NewsAPI(newsApiKey);
 
@@ -36,21 +34,20 @@ const newsAPIClient = new NewsAPI(newsApiKey);
  */
 async function fetchNews() {
   try {
-    // You can adjust the query and sources as needed
-    const response = await newsAPIClient.v2.everything({
-      q: 'AI OR artificial intelligence',
-      sortBy: 'publishedAt',
-      language: 'en',
-      pageSize: 5
+    const response = await newsAPIClient.v2.topHeadlines({
+      q: "AI",
+      language: "en",
+      pageSize: 5,
     });
-    if (response.status === 'ok') {
+
+    if (response.status === "ok") {
       return response.articles;
     } else {
-      console.error('Error fetching news:', response);
+      console.error("Error fetching news:", response);
       return [];
     }
   } catch (error) {
-    console.error('Error fetching news:', error);
+    console.error("Error fetching news:", error);
     return [];
   }
 }
@@ -65,66 +62,70 @@ async function summarizeText(text) {
     const output = await hf.summarization({
       model: summarizationModel,
       inputs: text,
-      parameters: {
-        max_length: 100, // Keep the summary concise
-      },
+      parameters: { max_length: 80 },
     });
-    return output.summary_text;
+
+    if (Array.isArray(output) && output[0]?.summary_text) {
+      return output[0].summary_text;
+    }
+    return output.summary_text || text; // fallback
   } catch (error) {
-    console.error('Error summarizing text:', error);
-    return 'Could not generate a summary.';
+    console.error("Error summarizing text:", error);
+    return text; // fallback to original
   }
 }
 
 /**
- * Truncates a string to fit within the Twitter character limit (280).
- * @param {string} text The text to truncate.
- * @returns {string} The truncated text.
+ * Formats a tweet safely by truncating only the summary
+ * while keeping hashtags and URL intact.
  */
-function truncateTweet(text) {
-  const maxLength = 280;
-  if (text.length > maxLength) {
-    return text.substring(0, maxLength - 3) + '...';
+function formatTweet(summary, url) {
+  const hashtags = "#AI #ArtificialIntelligence #Tech";
+  const reservedLength = hashtags.length + url.length + 10; // spaces + newline
+  const maxSummaryLength = 280 - reservedLength;
+
+  let safeSummary = summary;
+  if (summary.length > maxSummaryLength) {
+    safeSummary = summary.substring(0, maxSummaryLength - 3) + "...";
   }
-  return text;
+
+  return `${safeSummary} ${hashtags}\n\nRead more: ${url}`;
 }
 
 // --- Main Bot Logic ---
 
 async function runBot() {
-  console.log('Starting AI News Bot...');
-  
+  console.log("Starting AI News Bot...");
+
   // 1. Fetch news articles
   const articles = await fetchNews();
 
   if (articles.length === 0) {
-    console.log('No articles found. Exiting.');
+    console.log("No articles found. Exiting.");
     return;
   }
 
-  // Pick the most recent article
-  const latestArticle = articles[0];
+  // Pick a random article to avoid duplicates
+  const latestArticle = articles[Math.floor(Math.random() * articles.length)];
   const { title, description, url } = latestArticle;
 
   console.log(`Processing article: "${title}"`);
 
   // 2. Summarize the article
-  const combinedText = `${title}. ${description}`;
+  const combinedText = `${title}. ${description || ""}`;
   const summary = await summarizeText(combinedText);
-  
-  // 3. Format the tweet
-  const hashtags = '#AI #ArtificialIntelligence #Tech';
-  const tweetText = `${summary} ${hashtags} \n\nRead more: ${url}`;
-  const finalTweet = truncateTweet(tweetText);
+
+  // 3. Format the tweet safely
+  const finalTweet = formatTweet(summary, url);
 
   console.log(`Generated Tweet:\n"${finalTweet}"`);
 
   // 4. Post the tweet
   try {
     await rwClient.v2.tweet(finalTweet);
-    console.log('Successfully posted tweet!');
+    console.log("✅ Successfully posted tweet!");
   } catch (e) {
-    console.error('Error posting tweet:', e);
+    console.error("❌ Error posting tweet:", e);
   }
 }
 
