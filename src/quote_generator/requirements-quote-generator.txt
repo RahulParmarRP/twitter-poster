@@ -1,0 +1,2 @@
+# Optional dependency. Pillow enables PNG output. The script works without it and will always write an SVG.
+Pillow>=9.0.0

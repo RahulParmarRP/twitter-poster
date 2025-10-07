@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1080px" height="1080px" viewBox="0 0 1080 1080">
+  <rect width="100%" height="100%" fill="#0f172a" />
+  <rect x="40" y="40" width="1000" height="1000" rx="40" ry="40" fill="#0b1220" opacity="0.9" />
+  <g fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial" font-size="48">
+    <foreignObject x="80" y="120" width="920" height="840">
+      <body xmlns="http://www.w3.org/1999/xhtml" style="margin:0;">
+        <div style="font-size:48px; line-height:1.15; color:#ffffff; display:flex; align-items:center; justify-content:center; height:100%; text-align:center;">
+          <div>Consistency compounds into<br/>results.</div>
+        </div>
+      </body>
+    </foreignObject>
+  </g>
+</svg>
