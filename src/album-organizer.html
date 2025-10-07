@@ -3,6 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <title>Offline Image Organizer</title>
+  <style>
+    ul { list-style-type: none; padding-left: 20px; }
+    li { cursor: pointer; user-select: none; }
+    li.file { cursor: default; }
+    #folder-tree { border: 1px solid #ccc; padding: 10px; margin: 10px 0; max-height: 300px; overflow-y: auto; }
+  </style>
 </head>
 <body>
   <h2>Offline Image Organizer</h2>
@@ -12,6 +18,7 @@
   <button id="organize" disabled>3. Organize by Month</button>
 
   <div id="status"></div>
+  <div id="folder-tree"></div>
 
   <script>
     let rootHandle = null;
@@ -21,20 +28,53 @@
     const selectFolderBtn = document.getElementById("select-folder");
     const readFilesBtn = document.getElementById("read-files");
     const organizeBtn = document.getElementById("organize");
+    const folderTreeDiv = document.getElementById("folder-tree");
 
-    // Step 1: Select root folder
+    // Step 1: Select root folder and show tree
     selectFolderBtn.addEventListener("click", async () => {
       try {
         rootHandle = await window.showDirectoryPicker();
         status.innerText = "Folder selected.";
         readFilesBtn.disabled = false;
+        
+        // Show folder tree
+        folderTreeDiv.innerHTML = '';
+        const ul = document.createElement('ul');
+        await buildTree(rootHandle, ul);
+        folderTreeDiv.appendChild(ul);
       } catch (err) {
         console.error(err);
         status.innerText = "Folder selection cancelled or error.";
       }
     });
 
-    // Step 2: Read all images recursively
+    // Build folder tree view
+    async function buildTree(dirHandle, parentElement) {
+      for await (const entry of dirHandle.values()) {
+        const li = document.createElement('li');
+        li.textContent = entry.name;
+
+        if (entry.kind === 'directory') {
+          li.addEventListener('click', e => {
+            e.stopPropagation();
+            const childUl = li.querySelector('ul');
+            if (childUl) {
+              childUl.style.display = childUl.style.display === 'none' ? 'block' : 'none';
+            }
+          });
+
+          const childUl = document.createElement('ul');
+          await buildTree(entry, childUl);
+          li.appendChild(childUl);
+        } else {
+          li.classList.add('file');
+        }
+
+        parentElement.appendChild(li);
+      }
+    }
+
+    // Step 2: Read all images recursively (your original code)
     async function readFiles(folderHandle) {
       const files = [];
       for await (const entry of folderHandle.values()) {
@@ -55,7 +95,7 @@
       organizeBtn.disabled = false;
     });
 
-    // Step 3: Organize by month
+    // Step 3: Organize by month (your original code - just copies)
     organizeBtn.addEventListener("click", async () => {
       if (!imageFiles.length) return;
       status.innerText = "Organizing images...";
@@ -71,6 +111,12 @@
         await writable.write(await file.arrayBuffer());
         await writable.close();
       }
+
+      // Refresh tree after organizing
+      folderTreeDiv.innerHTML = '';
+      const ul = document.createElement('ul');
+      await buildTree(rootHandle, ul);
+      folderTreeDiv.appendChild(ul);
 
       status.innerText = "Images organized successfully!";
     });
