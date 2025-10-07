@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "main": "src/post.js",
+  "homepage": "https://rahulparmarrp.github.io/twitter-poster",
   "scripts": {
     "generate-tweets-csv": "node src/generate.js",
     "generate-quote": "python3 src/quote_generator/generate_quote_image.py",
@@ -11,7 +12,8 @@
     "gemini-news-bot": "node src/gemini/ai-news-tweet-bot.js",
     "single-post": "node src/post-single.js",
     "start:gemini-news-bot": "cross-env DRY_RUN=false node src/gemini/ai-news-tweet-bot.js",
-    "dry:gemini-news-bot": "cross-env DRY_RUN=true node src/gemini/ai-news-tweet-bot.js"
+    "dry:gemini-news-bot": "cross-env DRY_RUN=true node src/gemini/ai-news-tweet-bot.js",
+    "deploy": "cp src/album-organizer.html index.html && git add index.html && git commit -m 'Deploy to GitHub Pages' && git push"
   },
   "dependencies": {
     "@huggingface/inference": "^2.5.0",
