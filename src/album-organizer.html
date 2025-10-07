@@ -8,6 +8,9 @@
     li { cursor: pointer; user-select: none; }
     li.file { cursor: default; }
     #folder-tree { border: 1px solid #ccc; padding: 10px; margin: 10px 0; max-height: 300px; overflow-y: auto; }
+    #organization-preview { border: 1px solid #0066cc; padding: 10px; margin: 10px 0; max-height: 300px; overflow-y: auto; background-color: #f9f9f9; }
+    .month-folder { font-weight: bold; color: #0066cc; }
+    .image-file { color: #333; margin-left: 20px; }
   </style>
 </head>
 <body>
@@ -15,10 +18,12 @@
 
   <button id="select-folder">1. Select Folder</button>
   <button id="read-files" disabled>2. Read Images</button>
+  <button id="visualize" disabled>2.5. Visualize Organization</button>
   <button id="organize" disabled>3. Organize by Month</button>
 
   <div id="status"></div>
   <div id="folder-tree"></div>
+  <div id="organization-preview"></div>
 
   <script>
     let rootHandle = null;
@@ -27,8 +32,10 @@
     const status = document.getElementById("status");
     const selectFolderBtn = document.getElementById("select-folder");
     const readFilesBtn = document.getElementById("read-files");
+    const visualizeBtn = document.getElementById("visualize");
     const organizeBtn = document.getElementById("organize");
     const folderTreeDiv = document.getElementById("folder-tree");
+    const organizationPreviewDiv = document.getElementById("organization-preview");
 
     // Step 1: Select root folder and show tree
     selectFolderBtn.addEventListener("click", async () => {
@@ -74,7 +81,7 @@
       }
     }
 
-    // Step 2: Read all images recursively (your original code)
+    // Step 2: Read all images recursively
     async function readFiles(folderHandle) {
       const files = [];
       for await (const entry of folderHandle.values()) {
@@ -91,11 +98,68 @@
       if (!rootHandle) return;
       status.innerText = "Reading files...";
       imageFiles = await readFiles(rootHandle);
-      status.innerText = `${imageFiles.length} images found. Ready to organize.`;
+      status.innerText = `${imageFiles.length} images found. Ready to visualize or organize.`;
+      visualizeBtn.disabled = false;
       organizeBtn.disabled = false;
     });
 
-    // Step 3: Organize by month (your original code - just copies)
+    // Step 2.5: Visualize Organization
+    visualizeBtn.addEventListener("click", async () => {
+      if (!imageFiles.length) return;
+      status.innerText = "Visualizing organization...";
+      
+      // Group images by month
+      const monthGroups = {};
+      
+      for (const fileHandle of imageFiles) {
+        const file = await fileHandle.getFile();
+        const date = new Date(file.lastModified);
+        const monthFolderName = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2,"0")}`;
+        
+        if (!monthGroups[monthFolderName]) {
+          monthGroups[monthFolderName] = [];
+        }
+        monthGroups[monthFolderName].push(file.name);
+      }
+
+      // Build preview tree
+      organizationPreviewDiv.innerHTML = '<h3>Organization Preview:</h3>';
+      const previewUl = document.createElement('ul');
+      
+      // Sort months
+      const sortedMonths = Object.keys(monthGroups).sort();
+      
+      for (const monthFolder of sortedMonths) {
+        const monthLi = document.createElement('li');
+        monthLi.className = 'month-folder';
+        monthLi.textContent = `📁 ${monthFolder} (${monthGroups[monthFolder].length} images)`;
+        
+        // Add click to toggle
+        monthLi.addEventListener('click', e => {
+          e.stopPropagation();
+          const childUl = monthLi.querySelector('ul');
+          if (childUl) {
+            childUl.style.display = childUl.style.display === 'none' ? 'block' : 'none';
+          }
+        });
+        
+        const filesUl = document.createElement('ul');
+        for (const fileName of monthGroups[monthFolder]) {
+          const fileLi = document.createElement('li');
+          fileLi.className = 'image-file';
+          fileLi.textContent = `• ${fileName}`;
+          filesUl.appendChild(fileLi);
+        }
+        
+        monthLi.appendChild(filesUl);
+        previewUl.appendChild(monthLi);
+      }
+      
+      organizationPreviewDiv.appendChild(previewUl);
+      status.innerText = `Preview ready: ${sortedMonths.length} month folders will be created.`;
+    });
+
+    // Step 3: Organize by month
     organizeBtn.addEventListener("click", async () => {
       if (!imageFiles.length) return;
       status.innerText = "Organizing images...";
