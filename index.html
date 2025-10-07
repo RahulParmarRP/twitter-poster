@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Offline Image Organizer</title>
+  <style>
+    ul { list-style-type: none; padding-left: 20px; }
+    li { cursor: pointer; user-select: none; }
+    li.file { cursor: default; }
+    #folder-tree { border: 1px solid #ccc; padding: 10px; margin: 10px 0; max-height: 300px; overflow-y: auto; }
+    #organization-preview { border: 1px solid #0066cc; padding: 10px; margin: 10px 0; max-height: 300px; overflow-y: auto; background-color: #f9f9f9; }
+    .month-folder { font-weight: bold; color: #0066cc; }
+    .image-file { color: #333; margin-left: 20px; }
+    .organization-options { background-color: #f0f0f0; padding: 10px; margin: 10px 0; border-radius: 5px; }
+    .organization-options label { margin-right: 20px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h2>Offline Image Organizer</h2>
+
+  <button id="select-folder">1. Select Folder</button>
+  <button id="read-files" disabled>2. Read Images</button>
+  
+  <div class="organization-options" id="organization-options" style="display:none;">
+    <strong>Organization Type:</strong><br><br>
+    <label><input type="radio" name="organization" value="monthly" checked> Monthly Albums (2025-08)</label>
+    <label><input type="radio" name="organization" value="daily"> Daily Albums (2025-08-30)</label>
+  </div>
+  
+  <button id="visualize" disabled>2.5. Visualize Organization</button>
+  <button id="organize" disabled>3. Organize Images</button>
+
+  <div id="status"></div>
+  <div id="folder-tree"></div>
+  <div id="organization-preview"></div>
+
+  <script>
+    let rootHandle = null;
+    let imageFiles = [];
+
+    const status = document.getElementById("status");
+    const selectFolderBtn = document.getElementById("select-folder");
+    const readFilesBtn = document.getElementById("read-files");
+    const visualizeBtn = document.getElementById("visualize");
+    const organizeBtn = document.getElementById("organize");
+    const folderTreeDiv = document.getElementById("folder-tree");
+    const organizationPreviewDiv = document.getElementById("organization-preview");
+    const organizationOptionsDiv = document.getElementById("organization-options");
+
+    // Get selected organization type
+    function getOrganizationType() {
+      return document.querySelector('input[name="organization"]:checked').value;
+    }
+
+    // Generate folder name based on organization type
+    function getFolderName(date, type) {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      
+      if (type === 'daily') {
+        return `${year}-${month}-${day}`;
+      } else {
+        return `${year}-${month}`;
+      }
+    }
+
+    // Get display name for folder
+    function getFolderDisplayName(folderName, type) {
+      if (type === 'daily') {
+        const [year, month, day] = folderName.split('-');
+        const date = new Date(year, month - 1, day);
+        return `${folderName} (${date.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })})`;
+      } else {
+        const [year, month] = folderName.split('-');
+        const date = new Date(year, month - 1);
+        return `${folderName} (${date.toLocaleDateString('en-US', { year: 'numeric', month: 'long' })})`;
+      }
+    }
+
+    // Step 1: Select root folder and show tree
+    selectFolderBtn.addEventListener("click", async () => {
+      try {
+        rootHandle = await window.showDirectoryPicker();
+        status.innerText = "Folder selected.";
+        readFilesBtn.disabled = false;
+        
+        // Show folder tree
+        folderTreeDiv.innerHTML = '';
+        const ul = document.createElement('ul');
+        await buildTree(rootHandle, ul);
+        folderTreeDiv.appendChild(ul);
+      } catch (err) {
+        console.error(err);
+        status.innerText = "Folder selection cancelled or error.";
+      }
+    });
+
+    // Build folder tree view
+    async function buildTree(dirHandle, parentElement) {
+      for await (const entry of dirHandle.values()) {
+        const li = document.createElement('li');
+        li.textContent = entry.name;
+
+        if (entry.kind === 'directory') {
+          li.addEventListener('click', e => {
+            e.stopPropagation();
+            const childUl = li.querySelector('ul');
+            if (childUl) {
+              childUl.style.display = childUl.style.display === 'none' ? 'block' : 'none';
+            }
+          });
+
+          const childUl = document.createElement('ul');
+          await buildTree(entry, childUl);
+          li.appendChild(childUl);
+        } else {
+          li.classList.add('file');
+        }
+
+        parentElement.appendChild(li);
+      }
+    }
+
+    // Step 2: Read all images recursively
+    async function readFiles(folderHandle) {
+      const files = [];
+      for await (const entry of folderHandle.values()) {
+        if (entry.kind === "file" && /\.(jpe?g|png|gif|bmp|webp|heic|raw|tiff?)$/i.test(entry.name)) {
+          files.push(entry);
+        } else if (entry.kind === "directory") {
+          files.push(...await readFiles(entry));
+        }
+      }
+      return files;
+    }
+
+    readFilesBtn.addEventListener("click", async () => {
+      if (!rootHandle) return;
+      status.innerText = "Reading files...";
+      imageFiles = await readFiles(rootHandle);
+      status.innerText = `${imageFiles.length} images found. Choose organization type.`;
+      
+      // Show organization options
+      organizationOptionsDiv.style.display = 'block';
+      visualizeBtn.disabled = false;
+      organizeBtn.disabled = false;
+    });
+
+    // Step 2.5: Visualize Organization
+    visualizeBtn.addEventListener("click", async () => {
+      if (!imageFiles.length) return;
+      status.innerText = "Visualizing organization...";
+      
+      const organizationType = getOrganizationType();
+      
+      // Group images by selected organization type
+      const groups = {};
+      
+      for (const fileHandle of imageFiles) {
+        const file = await fileHandle.getFile();
+        const date = new Date(file.lastModified);
+        const folderName = getFolderName(date, organizationType);
+        
+        if (!groups[folderName]) {
+          groups[folderName] = [];
+        }
+        groups[folderName].push(file.name);
+      }
+
+      // Build preview tree
+      organizationPreviewDiv.innerHTML = `<h3>Organization Preview (${organizationType === 'daily' ? 'Daily' : 'Monthly'}):</h3>`;
+      const previewUl = document.createElement('ul');
+      
+      // Sort folders
+      const sortedFolders = Object.keys(groups).sort();
+      
+      for (const folderName of sortedFolders) {
+        const folderLi = document.createElement('li');
+        folderLi.className = 'month-folder';
+        const displayName = getFolderDisplayName(folderName, organizationType);
+        folderLi.textContent = `📁 ${displayName} (${groups[folderName].length} images)`;
+        
+        // Add click to toggle
+        folderLi.addEventListener('click', e => {
+          e.stopPropagation();
+          const childUl = folderLi.querySelector('ul');
+          if (childUl) {
+            childUl.style.display = childUl.style.display === 'none' ? 'block' : 'none';
+          }
+        });
+        
+        const filesUl = document.createElement('ul');
+        for (const fileName of groups[folderName]) {
+          const fileLi = document.createElement('li');
+          fileLi.className = 'image-file';
+          fileLi.textContent = `• ${fileName}`;
+          filesUl.appendChild(fileLi);
+        }
+        
+        folderLi.appendChild(filesUl);
+        previewUl.appendChild(folderLi);
+      }
+      
+      organizationPreviewDiv.appendChild(previewUl);
+      status.innerText = `Preview ready: ${sortedFolders.length} ${organizationType === 'daily' ? 'daily' : 'monthly'} folders will be created.`;
+    });
+
+    // Step 3: Organize images
+    organizeBtn.addEventListener("click", async () => {
+      if (!imageFiles.length) return;
+      
+      const organizationType = getOrganizationType();
+      status.innerText = `Organizing images by ${organizationType === 'daily' ? 'day' : 'month'}...`;
+
+      let processed = 0;
+      for (const fileHandle of imageFiles) {
+        try {
+          const file = await fileHandle.getFile();
+          const date = new Date(file.lastModified);
+          const folderName = getFolderName(date, organizationType);
+
+          let targetFolder = await rootHandle.getDirectoryHandle(folderName, { create: true });
+          
+          // Handle filename conflicts
+          let finalFileName = file.name;
+          let counter = 1;
+          while (true) {
+            try {
+              await targetFolder.getFileHandle(finalFileName);
+              // File exists, try with counter
+              const nameParts = file.name.split('.');
+              const ext = nameParts.pop();
+              const baseName = nameParts.join('.');
+              finalFileName = `${baseName}_${counter}.${ext}`;
+              counter++;
+            } catch {
+              break; // File doesn't exist, use this name
+            }
+          }
+          
+          const newFileHandle = await targetFolder.getFileHandle(finalFileName, { create: true });
+          const writable = await newFileHandle.createWritable();
+          await writable.write(await file.arrayBuffer());
+          await writable.close();
+          
+          processed++;
+          status.innerText = `Organizing... ${processed}/${imageFiles.length} images processed`;
+        } catch (err) {
+          console.error('Error organizing file:', err);
+        }
+      }
+
+      // Refresh tree after organizing
+      folderTreeDiv.innerHTML = '';
+      const ul = document.createElement('ul');
+      await buildTree(rootHandle, ul);
+      folderTreeDiv.appendChild(ul);
+
+      status.innerText = `Images organized successfully! ${processed} images organized by ${organizationType === 'daily' ? 'day' : 'month'}.`;
+    });
+  </script>
+</body>
+</html>
