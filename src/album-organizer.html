@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Offline Image Organizer</title>
+</head>
+<body>
+  <h2>Offline Image Organizer</h2>
+
+  <button id="select-folder">1. Select Folder</button>
+  <button id="read-files" disabled>2. Read Images</button>
+  <button id="organize" disabled>3. Organize by Month</button>
+
+  <div id="status"></div>
+
+  <script>
+    let rootHandle = null;
+    let imageFiles = [];
+
+    const status = document.getElementById("status");
+    const selectFolderBtn = document.getElementById("select-folder");
+    const readFilesBtn = document.getElementById("read-files");
+    const organizeBtn = document.getElementById("organize");
+
+    // Step 1: Select root folder
+    selectFolderBtn.addEventListener("click", async () => {
+      try {
+        rootHandle = await window.showDirectoryPicker();
+        status.innerText = "Folder selected.";
+        readFilesBtn.disabled = false;
+      } catch (err) {
+        console.error(err);
+        status.innerText = "Folder selection cancelled or error.";
+      }
+    });
+
+    // Step 2: Read all images recursively
+    async function readFiles(folderHandle) {
+      const files = [];
+      for await (const entry of folderHandle.values()) {
+        if (entry.kind === "file" && /\.(jpe?g|png)$/i.test(entry.name)) {
+          files.push(entry);
+        } else if (entry.kind === "directory") {
+          files.push(...await readFiles(entry));
+        }
+      }
+      return files;
+    }
+
+    readFilesBtn.addEventListener("click", async () => {
+      if (!rootHandle) return;
+      status.innerText = "Reading files...";
+      imageFiles = await readFiles(rootHandle);
+      status.innerText = `${imageFiles.length} images found. Ready to organize.`;
+      organizeBtn.disabled = false;
+    });
+
+    // Step 3: Organize by month
+    organizeBtn.addEventListener("click", async () => {
+      if (!imageFiles.length) return;
+      status.innerText = "Organizing images...";
+
+      for (const fileHandle of imageFiles) {
+        const file = await fileHandle.getFile();
+        const date = new Date(file.lastModified);
+        const monthFolderName = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2,"0")}`;
+
+        let monthFolder = await rootHandle.getDirectoryHandle(monthFolderName, { create: true });
+        const newFileHandle = await monthFolder.getFileHandle(file.name, { create: true });
+        const writable = await newFileHandle.createWritable();
+        await writable.write(await file.arrayBuffer());
+        await writable.close();
+      }
+
+      status.innerText = "Images organized successfully!";
+    });
+  </script>
+</body>
+</html>
