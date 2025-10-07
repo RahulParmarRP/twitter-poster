@@ -7,12 +7,15 @@
     ul { list-style-type: none; padding-left: 20px; }
     li { cursor: pointer; user-select: none; }
     li.file { cursor: default; }
+    li.clickable-file { cursor: pointer; color: #0066cc; }
     #folder-tree { border: 1px solid #ccc; padding: 10px; margin: 10px 0; max-height: 300px; overflow-y: auto; }
     #organization-preview { border: 1px solid #0066cc; padding: 10px; margin: 10px 0; max-height: 300px; overflow-y: auto; background-color: #f9f9f9; }
+    #file-properties { border: 1px solid #999; padding: 10px; margin: 10px 0; background-color: #f5f5f5; display: none; }
     .month-folder { font-weight: bold; color: #0066cc; }
     .image-file { color: #333; margin-left: 20px; }
     .organization-options { background-color: #f0f0f0; padding: 10px; margin: 10px 0; border-radius: 5px; }
     .organization-options label { margin-right: 20px; cursor: pointer; }
+    .property-line { margin: 2px 0; font-family: monospace; }
   </style>
 </head>
 <body>
@@ -32,6 +35,11 @@
 
   <div id="status"></div>
   <div id="folder-tree"></div>
+  <div id="file-properties">
+    <button onclick="closeProperties()" style="float:right;">Close</button>
+    <h4 id="prop-filename">File Properties</h4>
+    <div id="prop-content"></div>
+  </div>
   <div id="organization-preview"></div>
 
   <script>
@@ -46,6 +54,50 @@
     const folderTreeDiv = document.getElementById("folder-tree");
     const organizationPreviewDiv = document.getElementById("organization-preview");
     const organizationOptionsDiv = document.getElementById("organization-options");
+    const filePropertiesDiv = document.getElementById("file-properties");
+    const propFilename = document.getElementById("prop-filename");
+    const propContent = document.getElementById("prop-content");
+
+    function closeProperties() {
+      filePropertiesDiv.style.display = 'none';
+    }
+
+    // Show file properties
+    async function showFileProperties(fileHandle) {
+      try {
+        const file = await fileHandle.getFile();
+        
+        propFilename.textContent = file.name;
+        let html = '';
+        
+        // Iterate through all file properties
+        for (const key in file) {
+          try {
+            const value = file[key];
+              html += `<div class="property-line">${key}: ${value}</div>`;
+          } catch (e) {
+            html += `<div class="property-line">${key}: [Access Denied]</div>`;
+          }
+        }
+        
+        // Add computed properties
+        html += `<div class="property-line">size_formatted: ${formatBytes(file.size)}</div>`;
+        html += `<div class="property-line">lastModified_formatted: ${new Date(file.lastModified).toLocaleString()}</div>`;
+        
+        propContent.innerHTML = html;
+        filePropertiesDiv.style.display = 'block';
+      } catch (err) {
+        console.error('Error reading file:', err);
+      }
+    }
+
+    function formatBytes(bytes) {
+      if (bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
 
     // Get selected organization type
     function getOrganizationType() {
@@ -82,7 +134,7 @@
     selectFolderBtn.addEventListener("click", async () => {
       try {
         rootHandle = await window.showDirectoryPicker();
-        status.innerText = "Folder selected.";
+        status.innerText = "Folder selected. Click any file to see properties.";
         readFilesBtn.disabled = false;
         
         // Show folder tree
@@ -116,6 +168,11 @@
           li.appendChild(childUl);
         } else {
           li.classList.add('file');
+          li.classList.add('clickable-file');
+          li.addEventListener('click', e => {
+            e.stopPropagation();
+            showFileProperties(entry);
+          });
         }
 
         parentElement.appendChild(li);
