@@ -10,12 +10,15 @@
     li.clickable-file { cursor: pointer; color: #0066cc; }
     #folder-tree { border: 1px solid #ccc; padding: 10px; margin: 10px 0; max-height: 300px; overflow-y: auto; }
     #organization-preview { border: 1px solid #0066cc; padding: 10px; margin: 10px 0; max-height: 300px; overflow-y: auto; background-color: #f9f9f9; }
-    #file-properties { border: 1px solid #999; padding: 10px; margin: 10px 0; background-color: #f5f5f5; display: none; }
+    #file-details { border: 1px solid #999; padding: 10px; margin: 10px 0; background-color: #f5f5f5; max-height: 400px; overflow-y: auto; }
     .month-folder { font-weight: bold; color: #0066cc; }
     .image-file { color: #333; margin-left: 20px; }
     .organization-options { background-color: #f0f0f0; padding: 10px; margin: 10px 0; border-radius: 5px; }
     .organization-options label { margin-right: 20px; cursor: pointer; }
-    .property-line { margin: 2px 0; font-family: monospace; }
+    .files-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .files-table th, .files-table td { border: 1px solid #ddd; padding: 4px; text-align: left; }
+    .files-table th { background-color: #f2f2f2; font-weight: bold; }
+    .files-table tr:nth-child(even) { background-color: #f9f9f9; }
   </style>
 </head>
 <body>
@@ -35,10 +38,9 @@
 
   <div id="status"></div>
   <div id="folder-tree"></div>
-  <div id="file-properties">
-    <button onclick="closeProperties()" style="float:right;">Close</button>
-    <h4 id="prop-filename">File Properties</h4>
-    <div id="prop-content"></div>
+  <div id="file-details">
+    <h3>File Details</h3>
+    <div id="files-table-container"></div>
   </div>
   <div id="organization-preview"></div>
 
@@ -54,41 +56,61 @@
     const folderTreeDiv = document.getElementById("folder-tree");
     const organizationPreviewDiv = document.getElementById("organization-preview");
     const organizationOptionsDiv = document.getElementById("organization-options");
-    const filePropertiesDiv = document.getElementById("file-properties");
-    const propFilename = document.getElementById("prop-filename");
-    const propContent = document.getElementById("prop-content");
+    const filesTableContainer = document.getElementById("files-table-container");
+    let allFiles = [];
 
-    function closeProperties() {
-      filePropertiesDiv.style.display = 'none';
-    }
-
-    // Show file properties
-    async function showFileProperties(fileHandle) {
+    // Get all file properties without any filtering
+    async function getFileProperties(fileHandle, folderPath = '') {
       try {
         const file = await fileHandle.getFile();
-        
-        propFilename.textContent = file.name;
-        let html = '';
-        
-        // Iterate through all file properties
+        const properties = {
+          path: folderPath
+        };
+
+        // Add absolutely everything from the file object
         for (const key in file) {
-          try {
-            const value = file[key];
-              html += `<div class="property-line">${key}: ${value}</div>`;
-          } catch (e) {
-            html += `<div class="property-line">${key}: [Access Denied]</div>`;
-          }
+          properties[key] = file[key];
         }
-        
-        // Add computed properties
-        html += `<div class="property-line">size_formatted: ${formatBytes(file.size)}</div>`;
-        html += `<div class="property-line">lastModified_formatted: ${new Date(file.lastModified).toLocaleString()}</div>`;
-        
-        propContent.innerHTML = html;
-        filePropertiesDiv.style.display = 'block';
+
+        return properties;
       } catch (err) {
-        console.error('Error reading file:', err);
+        return { name: fileHandle.name, error: 'Could not read file' };
       }
+    }
+
+    // Display all files in table format
+    function displayFilesTable(files) {
+      if (!files.length) {
+        filesTableContainer.innerHTML = '<p>No files found</p>';
+        return;
+      }
+
+      // Get all unique property keys
+      const allKeys = new Set();
+      files.forEach(file => {
+        Object.keys(file).forEach(key => allKeys.add(key));
+      });
+
+      const keys = Array.from(allKeys).sort();
+
+      let tableHTML = '<table class="files-table"><thead><tr>';
+      keys.forEach(key => {
+        tableHTML += `<th>${key}</th>`;
+      });
+      tableHTML += '</tr></thead><tbody>';
+
+      files.forEach(file => {
+        tableHTML += '<tr>';
+        keys.forEach(key => {
+          let value = file[key];
+          // Display everything as-is, no truncation or filtering
+          tableHTML += `<td>${value}</td>`;
+        });
+        tableHTML += '</tr>';
+      });
+
+      tableHTML += '</tbody></table>';
+      filesTableContainer.innerHTML = tableHTML;
     }
 
     function formatBytes(bytes) {
@@ -130,29 +152,36 @@
       }
     }
 
-    // Step 1: Select root folder and show tree
+    // Step 1: Select root folder and read all file properties
     selectFolderBtn.addEventListener("click", async () => {
       try {
         rootHandle = await window.showDirectoryPicker();
-        status.innerText = "Folder selected. Click any file to see properties.";
+        status.innerText = "Reading folder and file properties...";
         readFilesBtn.disabled = false;
         
-        // Show folder tree
+        // Read all files and their properties
+        allFiles = [];
         folderTreeDiv.innerHTML = '';
         const ul = document.createElement('ul');
-        await buildTree(rootHandle, ul);
+        await buildTree(rootHandle, ul, '');
         folderTreeDiv.appendChild(ul);
+        
+        // Display all file properties
+        displayFilesTable(allFiles);
+        status.innerText = `Found ${allFiles.length} files with properties displayed below.`;
       } catch (err) {
         console.error(err);
         status.innerText = "Folder selection cancelled or error.";
       }
     });
 
-    // Build folder tree view
-    async function buildTree(dirHandle, parentElement) {
+    // Build folder tree and collect all file properties
+    async function buildTree(dirHandle, parentElement, currentPath) {
       for await (const entry of dirHandle.values()) {
         const li = document.createElement('li');
         li.textContent = entry.name;
+        
+        const fullPath = currentPath ? `${currentPath}/${entry.name}` : entry.name;
 
         if (entry.kind === 'directory') {
           li.addEventListener('click', e => {
@@ -164,15 +193,14 @@
           });
 
           const childUl = document.createElement('ul');
-          await buildTree(entry, childUl);
+          await buildTree(entry, childUl, fullPath);
           li.appendChild(childUl);
         } else {
           li.classList.add('file');
-          li.classList.add('clickable-file');
-          li.addEventListener('click', e => {
-            e.stopPropagation();
-            showFileProperties(entry);
-          });
+          
+          // Get file properties and add to allFiles array
+          const fileProps = await getFileProperties(entry, currentPath);
+          allFiles.push(fileProps);
         }
 
         parentElement.appendChild(li);
@@ -194,8 +222,13 @@
 
     readFilesBtn.addEventListener("click", async () => {
       if (!rootHandle) return;
-      status.innerText = "Reading files...";
-      imageFiles = await readFiles(rootHandle);
+      status.innerText = "Reading image files...";
+      
+      // Filter image files from allFiles array
+      imageFiles = allFiles.filter(fileProps => 
+        /\.(jpe?g|png|gif|bmp|webp|heic|raw|tiff?)$/i.test(fileProps.name)
+      );
+      
       status.innerText = `${imageFiles.length} images found. Choose organization type.`;
       
       // Show organization options
@@ -214,15 +247,14 @@
       // Group images by selected organization type
       const groups = {};
       
-      for (const fileHandle of imageFiles) {
-        const file = await fileHandle.getFile();
-        const date = new Date(file.lastModified);
+      for (const fileProps of imageFiles) {
+        const date = new Date(fileProps.lastModified);
         const folderName = getFolderName(date, organizationType);
         
         if (!groups[folderName]) {
           groups[folderName] = [];
         }
-        groups[folderName].push(file.name);
+        groups[folderName].push(fileProps.name);
       }
 
       // Build preview tree
@@ -263,58 +295,9 @@
       status.innerText = `Preview ready: ${sortedFolders.length} ${organizationType === 'daily' ? 'daily' : 'monthly'} folders will be created.`;
     });
 
-    // Step 3: Organize images
+    // Note: Organization functionality removed to focus on file properties display
     organizeBtn.addEventListener("click", async () => {
-      if (!imageFiles.length) return;
-      
-      const organizationType = getOrganizationType();
-      status.innerText = `Organizing images by ${organizationType === 'daily' ? 'day' : 'month'}...`;
-
-      let processed = 0;
-      for (const fileHandle of imageFiles) {
-        try {
-          const file = await fileHandle.getFile();
-          const date = new Date(file.lastModified);
-          const folderName = getFolderName(date, organizationType);
-
-          let targetFolder = await rootHandle.getDirectoryHandle(folderName, { create: true });
-          
-          // Handle filename conflicts
-          let finalFileName = file.name;
-          let counter = 1;
-          while (true) {
-            try {
-              await targetFolder.getFileHandle(finalFileName);
-              // File exists, try with counter
-              const nameParts = file.name.split('.');
-              const ext = nameParts.pop();
-              const baseName = nameParts.join('.');
-              finalFileName = `${baseName}_${counter}.${ext}`;
-              counter++;
-            } catch {
-              break; // File doesn't exist, use this name
-            }
-          }
-          
-          const newFileHandle = await targetFolder.getFileHandle(finalFileName, { create: true });
-          const writable = await newFileHandle.createWritable();
-          await writable.write(await file.arrayBuffer());
-          await writable.close();
-          
-          processed++;
-          status.innerText = `Organizing... ${processed}/${imageFiles.length} images processed`;
-        } catch (err) {
-          console.error('Error organizing file:', err);
-        }
-      }
-
-      // Refresh tree after organizing
-      folderTreeDiv.innerHTML = '';
-      const ul = document.createElement('ul');
-      await buildTree(rootHandle, ul);
-      folderTreeDiv.appendChild(ul);
-
-      status.innerText = `Images organized successfully! ${processed} images organized by ${organizationType === 'daily' ? 'day' : 'month'}.`;
+      status.innerText = "Organization feature temporarily disabled. Focus is on displaying file properties.";
     });
   </script>
 </body>
