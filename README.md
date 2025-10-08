@@ -2,6 +2,8 @@
 
 Automated Twitter/X poster using Node.js and GitHub Actions.
 
+<p>A collection of web development tools and experiments</p>
+  <p><strong>🌐 Live Demo:</strong> <a href="https://rahulparmarrp.github.io/twitter-poster/">Visit GitHub Pages</a></p>
 ---
 
 ## Features
@@ -16,27 +18,27 @@ Automated Twitter/X poster using Node.js and GitHub Actions.
 
 1. **Clone the repository:**
 
-    ```sh
-    git clone https://github.com/RahulParmarRP/twitter-poster.git
-    cd twitter-poster
-    ```
+   ```sh
+   git clone https://github.com/RahulParmarRP/twitter-poster.git
+   cd twitter-poster
+   ```
 
 2. **Install dependencies:**
 
-    ```sh
-    npm install
-    ```
+   ```sh
+   npm install
+   ```
 
 3. **Set up Twitter/X API credentials:**
 
-    - Copy `.env.example` to `.env` and fill in your API keys:
+   - Copy `.env.example` to `.env` and fill in your API keys:
 
-      ```sh
-      cp .env.example .env
-      # Edit .env and add your credentials
-      ```
+     ```sh
+     cp .env.example .env
+     # Edit .env and add your credentials
+     ```
 
-    - Or, if using GitHub Actions, add your credentials as repository secrets: `API_KEY`, `API_SECRET`, `ACCESS_TOKEN`, `ACCESS_SECRET`.
+   - Or, if using GitHub Actions, add your credentials as repository secrets: `API_KEY`, `API_SECRET`, `ACCESS_TOKEN`, `ACCESS_SECRET`.
 
 ---
 
@@ -46,19 +48,19 @@ Automated Twitter/X poster using Node.js and GitHub Actions.
 
 1. **Generate posts:**
 
-    ```sh
-    npm run generate
-    ```
+   ```sh
+   npm run generate
+   ```
 
-    _Creates/overwrites `posts.csv` with sample tweets._
+   _Creates/overwrites `posts.csv` with sample tweets._
 
 2. **Post to Twitter/X:**
 
-    ```sh
-    npm run post
-    ```
+   ```sh
+   npm run post
+   ```
 
-    _Reads `posts.csv` and posts each tweet using your credentials._
+   _Reads `posts.csv` and posts each tweet using your credentials._
 
 ### Automated (GitHub Actions)
 
